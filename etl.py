@@ -257,5 +257,5 @@ variables_para_imputar = [
 imputer, X_train_imputado, X_test_imputado = imputar_variables(X_train, X_test, variables_para_imputar, 10, n_semilla)
 y_train_class, y_test_class = clasificar_burn_rate(y_train, y_test)
 encoder_target, y_train_encoded, y_test_encoded = codificar_target(y_train_class, y_test_class)
-one_hot_encoder, X_train_codif, X_test_codif = codificar_categoricas(X_train_imputado, X_test_imputado, ["Gender", "Company Type", "WFH Setup Available"])
+encoder_categoricas, X_train_codif, X_test_codif = codificar_categoricas(X_train_imputado, X_test_imputado, ["Gender", "Company Type", "WFH Setup Available"])
 
