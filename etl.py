@@ -4,6 +4,7 @@ import os
 from sklearn.model_selection import train_test_split
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
+from sklearn.preprocessing import OrdinalEncoder, OneHotEncoder
 
 def cargar_datos(path: str, filename: str) -> pd.DataFrame:
     """
@@ -22,13 +23,26 @@ def cargar_datos(path: str, filename: str) -> pd.DataFrame:
     return pd.read_csv(file)
 
 
+def eliminar_columnas(dataset: pd.DataFrame, columnas_eliminar: list) -> pd.DataFrame:
+    """
+    Elimina las columnas seleccionadas
+
+    :param dataset: Dataframe con el dataset
+    :type dataset: pd.DataFrame
+    :param columnas_eliminar: Columnas a eliminar
+    :type columnas_eliminar: list
+    :rtype: pd.DataFrame
+    """
+    return dataset.drop(columns=columnas_eliminar)
+
+
 def eliminar_nulos_columna(dataset: pd.DataFrame, columnas_eliminar: list) -> pd.DataFrame:
     """
     Elimina las filass con nulos en las columnas seleccionadas
 
     :param dataset: Dataframe con el dataset
     :type dataset: pd.DataFrame
-    :param columnas_eliminar: columnas donde eliminar todos los nulos
+    :param columnas_eliminar: Columnas donde eliminar todas las filas con nulos
     :type columnas_eliminar: list
     :rtype: pd.DataFrame
     """
@@ -120,9 +134,117 @@ def imputar_variables(X_train: pd.DataFrame, X_test: pd.DataFrame, variables_par
     return imputer, X_train_imputado, X_test_imputado
 
 
+def clasificar_burn_rate(y_train: pd.DataFrame, y_test: pd.DataFrame) -> tuple:
+    """
+    Clasifica la variable target Burn Rate en categorías
+
+    :param y_train: Target train
+    :type y_train: pd.DataFrame
+    :param y_test: Target test
+    :type y_test: float
+    :returns: Tupla con las entradas y salidas de entrenamiento y testeo.
+    :rtype: tuple
+    """
+
+    column_name = y_train.columns[0]
+
+    # Convierte los valores a Low, Medium y High dependiendo el valor de Burn Rate
+    y_train_class = pd.DataFrame(
+        np.select(
+            [y_train[column_name] < 0.33, y_train[column_name] < 0.66],
+            ["Low", "Medium"],
+            default="High"
+        ),
+        columns=[column_name],
+        index=y_train.index
+    )
+
+    y_test_class = pd.DataFrame(
+        np.select(
+            [y_test[column_name] < 0.33, y_test[column_name] < 0.66],
+            ["Low", "Medium"],
+            default="High"
+        ),
+        columns=[column_name],
+        index=y_test.index
+    )
+
+    return y_train_class, y_test_class
+
+
+def codificar_target(y_train: pd.DataFrame, y_test: pd.DataFrame) -> tuple:
+    """
+    Codifica la variable target con OrdinalEncoder
+
+    :param y_train: Target train
+    :type y_train: pd.DataFrame
+    :param y_test: Target test
+    :type y_test: float
+    :returns: Tupla con las entradas y salidas de entrenamiento y testeo.
+    :rtype: tuple
+    """
+    
+
+
+    # Inicializar OrdinalEncoder con categorías explícitas
+    ordinal_encoder = OrdinalEncoder(categories=[["Low", "Medium", "High"]], dtype=np.int32)
+
+    # Codificar y_train
+    y_train_encoded = pd.Series(
+        ordinal_encoder.fit_transform(y_train).ravel(),
+        name="BurnRate_Class",
+        index=y_train.index
+    )
+
+    # Codificar y_test
+    y_test_encoded = pd.Series(
+        ordinal_encoder.transform(y_test).ravel(),
+        name="BurnRate_Class",
+        index=y_test.index
+    )
+
+    return ordinal_encoder, y_train_encoded, y_test_encoded
+
+
+def codificar_categoricas(X_train: pd.DataFrame, X_test: pd.DataFrame, columnas_categoricas: list) -> tuple:
+    """
+    Codifica las columnas categoricas con One-Hot Encoder
+
+    :param X_train: Datos train
+    :type X_train: pd.DataFrame
+    :param X_test: Datos test
+    :type X_test: float
+    param columnas_categoricas: Listado de columnas categóricas
+    :type columnas_categoricas: list
+    :returns: Tupla con las entradas y salidas de entrenamiento y testeo.
+    :rtype: tuple
+    """
+
+    # Extraer columnas numericas
+    numeric_cols = [col for col in X_train.columns if col not in columnas_categoricas]
+    X_train_num_df = X_train[numeric_cols].copy()
+    X_test_num_df  = X_test[numeric_cols].copy()
+
+    # Codificación One-Hot para categóricas 
+    ohe = OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore')
+    X_train_ohe = ohe.fit_transform(X_train[columnas_categoricas])
+    X_test_ohe  = ohe.transform(X_test[columnas_categoricas])
+    ohe_feature_names = ohe.get_feature_names_out(columnas_categoricas)
+
+    # Convertimos las variables codificadas a DataFrames
+    X_train_ohe_df = pd.DataFrame(X_train_ohe, columns=ohe_feature_names, index=X_train.index)
+    X_test_ohe_df  = pd.DataFrame(X_test_ohe,  columns=ohe_feature_names, index=X_test.index)
+
+    X_train_full = pd.concat([X_train_num_df, X_train_ohe_df], axis=1)
+    X_test_full  = pd.concat([X_test_num_df,  X_test_ohe_df],  axis=1)
+
+    return ohe, X_train_full, X_test_full
+
+
 # Proceso de Extract, Load and Transform
 n_semilla = 42
 dataset = cargar_datos("data", "enriched_employee_dataset.csv")
+dataset = eliminar_columnas(dataset, ['Employee ID', 'Date of Joining', 'Years in Company'])
 dataset = eliminar_nulos_columna(dataset, ["Burn Rate"])
 dataset = eliminar_nulos_multiples(dataset)
 X_train, X_test, y_train, y_test = split_dataset(dataset, 0.2, 'Burn Rate', n_semilla)
@@ -133,3 +255,7 @@ variables_para_imputar = [
     'Recognition Frequency'
 ]
 imputer, X_train_imputado, X_test_imputado = imputar_variables(X_train, X_test, variables_para_imputar, 10, n_semilla)
+y_train_class, y_test_class = clasificar_burn_rate(y_train, y_test)
+encoder_target, y_train_encoded, y_test_encoded = codificar_target(y_train_class, y_test_class)
+one_hot_encoder, X_train_codif, X_test_codif = codificar_categoricas(X_train_imputado, X_test_imputado, ["Gender", "Company Type", "WFH Setup Available"])
+
